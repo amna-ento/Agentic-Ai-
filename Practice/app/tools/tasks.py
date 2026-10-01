@@ -56,3 +56,130 @@ def view_tasks() -> str:
         f"Description: {task[2]} | Due: {task[3]} | Status: {task[4]}"
         for task in tasks
     )
+    
+    
+    
+@tool
+def update_task(
+    task_id: int,
+    title: str = "",
+    description: str = "",
+    due_date: str = "",
+    status: str = "",
+) -> str:
+    """Update an existing task. Use this when the user wants to change a task's title, description, due date, or status."""
+
+    connection = get_connection()
+    cursor = connection.cursor()
+
+    cursor.execute(
+        "SELECT id FROM tasks WHERE id = ?",
+        (task_id,),
+    )
+
+    task = cursor.fetchone()
+
+    if not task:
+        connection.close()
+        return f"Task {task_id} not found."
+
+    updates = []
+    values = []
+
+    if title:
+        updates.append("title = ?")
+        values.append(title)
+
+    if description:
+        updates.append("description = ?")
+        values.append(description)
+
+    if due_date:
+        updates.append("due_date = ?")
+        values.append(due_date)
+
+    if status:
+        updates.append("status = ?")
+        values.append(status)
+
+    if not updates:
+        connection.close()
+        return "No changes were provided."
+
+    values.append(task_id)
+
+    cursor.execute(
+        f"""
+        UPDATE tasks
+        SET {", ".join(updates)}
+        WHERE id = ?
+        """,
+        values,
+    )
+
+    connection.commit()
+    connection.close()
+
+    return f"Task {task_id} updated successfully."    
+
+
+@tool
+def delete_task(task_id: int) -> str:
+    """Delete an existing task by its ID."""
+
+    connection = get_connection()
+    cursor = connection.cursor()
+
+    cursor.execute(
+        "SELECT id FROM tasks WHERE id = ?",
+        (task_id,),
+    )
+
+    task = cursor.fetchone()
+
+    if not task:
+        connection.close()
+        return f"Task {task_id} not found."
+
+    cursor.execute(
+        "DELETE FROM tasks WHERE id = ?",
+        (task_id,),
+    )
+
+    connection.commit()
+    connection.close()
+
+    return f"Task {task_id} deleted successfully."
+
+
+@tool
+def complete_task(task_id: int) -> str:
+    """Mark an existing task as completed."""
+
+    connection = get_connection()
+    cursor = connection.cursor()
+
+    cursor.execute(
+        "SELECT id FROM tasks WHERE id = ?",
+        (task_id,),
+    )
+
+    task = cursor.fetchone()
+
+    if not task:
+        connection.close()
+        return f"Task {task_id} not found."
+
+    cursor.execute(
+        """
+        UPDATE tasks
+        SET status = ?
+        WHERE id = ?
+        """,
+        ("completed", task_id),
+    )
+
+    connection.commit()
+    connection.close()
+
+    return f"Task {task_id} marked as completed."
