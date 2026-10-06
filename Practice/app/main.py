@@ -1,7 +1,20 @@
+from langchain_core.messages import HumanMessage
+from langchain_core.runnables import RunnableConfig
+from langgraph.types import Command
+
 from app.agent import agent
 from app.agentt.clarification_manager import check_request
 from app.agentt.state import AgentState
 from app.database.database import initialize_database
+
+
+THREAD_ID = "personal-assistant-session"
+
+CONFIG: RunnableConfig = {
+    "configurable": {
+        "thread_id": THREAD_ID,
+    }
+}
 
 
 def main():
@@ -26,6 +39,36 @@ def main():
         if user_input.lower() in {"exit", "quit"}:
             break
 
+        if state["current_action"] == "waiting_for_approval":
+            result = agent.invoke(
+                Command(resume=user_input),
+                CONFIG,
+            )
+
+            interrupts = result.get("__interrupt__", [])
+
+            if interrupts:
+                approval_data = interrupts[0].value
+
+                print(
+                    f"\nAssistant: {approval_data['message']}"
+                )
+
+                continue
+
+            state["current_action"] = "finished"
+
+            if result.get("messages"):
+                last_message = result["messages"][-1]
+
+                print(
+                    f"\nAssistant: {last_message.content}"
+                )
+
+                state["final_response"] = last_message.content
+
+            continue
+
         state["user_request"] = user_input
         state["current_action"] = "processing request"
 
@@ -42,17 +85,23 @@ def main():
 
             state["pending_action"] = {}
 
+            message = (
+                f"Complete the {intent} request "
+                f"using this information: {data}"
+            )
+
             state["messages"].append(
                 {
                     "role": "user",
-                    "content": (
-                        f"Complete the {intent} request "
-                        f"using this information: {data}"
-                    ),
+                    "content": message,
                 }
             )
 
             state["current_action"] = "resuming_pending_action"
+
+            agent_input = HumanMessage(
+                content=message
+            )
 
         else:
             state["messages"].append(
@@ -82,40 +131,40 @@ def main():
 
                 continue
 
-        previous_message_count = len(state["messages"])
+            agent_input = HumanMessage(
+                content=user_input
+            )
 
         result = agent.invoke(
             {
-                "messages": state["messages"]
-            }
+                "messages": [agent_input],
+            },
+            CONFIG,
         )
 
-        state["messages"] = result["messages"]
+        interrupts = result.get("__interrupt__", [])
 
-        new_messages = state["messages"][previous_message_count:]
+        if interrupts:
+            approval_data = interrupts[0].value
 
-        state["tool_calls"] = []
-        state["tool_results"] = []
+            state["current_action"] = "waiting_for_approval"
 
-        for message in new_messages:
-            print("\n--- MESSAGE ---")
-            print(f"Type: {type(message).__name__}")
-            print(f"Content: {message.content}")
+            print(
+                f"\nAssistant: {approval_data['message']}"
+            )
 
-            if hasattr(message, "tool_calls") and message.tool_calls:
-                state["tool_calls"].extend(message.tool_calls)
-                print(f"Tool Calls: {message.tool_calls}")
-
-            if type(message).__name__ == "ToolMessage":
-                state["tool_results"].append(message.content)
+            continue
 
         state["current_action"] = "finished"
 
-        if new_messages:
-            last_message = new_messages[-1]
+        if result.get("messages"):
+            last_message = result["messages"][-1]
 
-            if type(last_message).__name__ == "AIMessage":
-                state["final_response"] = last_message.content
+            print(
+                f"\nAssistant: {last_message.content}"
+            )
+
+            state["final_response"] = last_message.content
 
 
 if __name__ == "__main__":
