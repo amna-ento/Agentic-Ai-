@@ -1,12 +1,42 @@
 import sqlite3
 from pathlib import Path
+from typing import Callable, Any
+
+from app.agentt.database_errors import classify_database_error
+from app.agentt.retry import retry_operation
 
 
 DATABASE_PATH = Path(__file__).resolve().parent / "assistant.db"
 
 
 def get_connection():
-    return sqlite3.connect(DATABASE_PATH)
+    return sqlite3.connect(
+        DATABASE_PATH,
+        timeout=1,
+    )
+
+
+def execute_with_retry(
+    operation: Callable[[], Any],
+    max_retries: int = 2,
+) -> Any:
+
+    def database_operation():
+        try:
+            return operation()
+
+        except Exception as error:
+            classified_error = classify_database_error(error)
+
+            if classified_error is not error:
+                raise classified_error
+
+            raise
+
+    return retry_operation(
+        database_operation,
+        max_retries=max_retries,
+    )
 
 
 def initialize_database():

@@ -1,9 +1,10 @@
+import os
 import sqlite3
 
 from langgraph.checkpoint.sqlite import SqliteSaver
 
 
-CHECKPOINT_DB = "data/checkpoints.sqlite"
+CHECKPOINT_DB = os.environ.get("LANGGRAPH_CHECKPOINT_DB", ":memory:")
 
 
 def create_checkpointer():

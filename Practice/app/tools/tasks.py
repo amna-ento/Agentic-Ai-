@@ -1,6 +1,9 @@
 from langchain_core.tools import tool
 
-from app.database.database import get_connection
+from app.database.database import (
+    get_connection,
+    execute_with_retry,
+)
 
 
 @tool
@@ -11,54 +14,67 @@ def create_task(
 ) -> str:
     """Create a new task with a title, optional description, and optional due date."""
 
-    connection = get_connection()
-    cursor = connection.cursor()
+    def database_operation():
+        connection = get_connection()
+        cursor = connection.cursor()
 
-    cursor.execute(
-        """
-        INSERT INTO tasks (title, description, due_date, status)
-        VALUES (?, ?, ?, ?)
-        """,
-        (title, description, due_date, "pending"),
-    )
+        cursor.execute(
+            """
+            INSERT INTO tasks (title, description, due_date, status)
+            VALUES (?, ?, ?, ?)
+            """,
+            (title, description, due_date, "pending"),
+        )
 
-    task_id = cursor.lastrowid
+        task_id = cursor.lastrowid
 
-    connection.commit()
-    connection.close()
+        connection.commit()
+        connection.close()
+
+        return task_id
+
+    task_id = execute_with_retry(database_operation)
 
     return f"Task created successfully. Task ID: {task_id}"
 
 
 @tool
 def view_tasks() -> str:
-    """View the user's tasks. Use this when the user asks to see, list, show, check, review, or know what tasks they have, including questions like 'What do I still need to do?' or 'What tasks do I have?'."""
+    """View all of the user's tasks.
 
-    connection = get_connection()
-    cursor = connection.cursor()
+    Use this when the user asks to see, list, show, check,
+    review, or know what tasks they have.
+    Always return every task from the database.
+    """
 
-    cursor.execute(
-        """
-        SELECT id, title, description, due_date, status
-        FROM tasks
-        ORDER BY id
-        """
-    )
+    def database_operation():
+        connection = get_connection()
+        cursor = connection.cursor()
 
-    tasks = cursor.fetchall()
-    connection.close()
+        cursor.execute(
+            """
+            SELECT id, title, description, due_date, status
+            FROM tasks
+            ORDER BY id
+            """
+        )
+
+        tasks = cursor.fetchall()
+        connection.close()
+
+        return tasks
+
+    tasks = execute_with_retry(database_operation)
 
     if not tasks:
         return "No tasks found."
 
     return "\n".join(
-        f"ID: {task[0]} | Title: {task[1]} | "
-        f"Description: {task[2]} | Due: {task[3]} | Status: {task[4]}"
+        f"Task {task[0]}: {task[1]}"
         for task in tasks
     )
-    
-    
-    
+
+
 @tool
 def update_task(
     task_id: int,
@@ -69,85 +85,104 @@ def update_task(
 ) -> str:
     """Update an existing task. Use this when the user wants to change a task's title, description, due date, or status."""
 
-    connection = get_connection()
-    cursor = connection.cursor()
+    def database_operation():
+        connection = get_connection()
+        cursor = connection.cursor()
 
-    cursor.execute(
-        "SELECT id FROM tasks WHERE id = ?",
-        (task_id,),
-    )
+        cursor.execute(
+            "SELECT id FROM tasks WHERE id = ?",
+            (task_id,),
+        )
 
-    task = cursor.fetchone()
+        task = cursor.fetchone()
 
-    if not task:
+        if not task:
+            connection.close()
+            return "NOT_FOUND"
+
+        updates = []
+        values = []
+
+        if title:
+            updates.append("title = ?")
+            values.append(title)
+
+        if description:
+            updates.append("description = ?")
+            values.append(description)
+
+        if due_date:
+            updates.append("due_date = ?")
+            values.append(due_date)
+
+        if status:
+            updates.append("status = ?")
+            values.append(status)
+
+        if not updates:
+            connection.close()
+            return "NO_CHANGES"
+
+        values.append(task_id)
+
+        cursor.execute(
+            f"""
+            UPDATE tasks
+            SET {", ".join(updates)}
+            WHERE id = ?
+            """,
+            values,
+        )
+
+        connection.commit()
         connection.close()
+
+        return "UPDATED"
+
+    result = execute_with_retry(database_operation)
+
+    if result == "NOT_FOUND":
         return f"Task {task_id} not found."
 
-    updates = []
-    values = []
-
-    if title:
-        updates.append("title = ?")
-        values.append(title)
-
-    if description:
-        updates.append("description = ?")
-        values.append(description)
-
-    if due_date:
-        updates.append("due_date = ?")
-        values.append(due_date)
-
-    if status:
-        updates.append("status = ?")
-        values.append(status)
-
-    if not updates:
-        connection.close()
+    if result == "NO_CHANGES":
         return "No changes were provided."
 
-    values.append(task_id)
-
-    cursor.execute(
-        f"""
-        UPDATE tasks
-        SET {", ".join(updates)}
-        WHERE id = ?
-        """,
-        values,
-    )
-
-    connection.commit()
-    connection.close()
-
-    return f"Task {task_id} updated successfully."    
+    return f"Task {task_id} updated successfully."
 
 
 @tool
 def delete_task(task_id: int) -> str:
     """Delete an existing task by its ID."""
 
-    connection = get_connection()
-    cursor = connection.cursor()
+    def database_operation():
+        connection = get_connection()
+        cursor = connection.cursor()
 
-    cursor.execute(
-        "SELECT id FROM tasks WHERE id = ?",
-        (task_id,),
-    )
+        cursor.execute(
+            "SELECT id FROM tasks WHERE id = ?",
+            (task_id,),
+        )
 
-    task = cursor.fetchone()
+        task = cursor.fetchone()
 
-    if not task:
+        if not task:
+            connection.close()
+            return False
+
+        cursor.execute(
+            "DELETE FROM tasks WHERE id = ?",
+            (task_id,),
+        )
+
+        connection.commit()
         connection.close()
+
+        return True
+
+    deleted = execute_with_retry(database_operation)
+
+    if not deleted:
         return f"Task {task_id} not found."
-
-    cursor.execute(
-        "DELETE FROM tasks WHERE id = ?",
-        (task_id,),
-    )
-
-    connection.commit()
-    connection.close()
 
     return f"Task {task_id} deleted successfully."
 
@@ -156,30 +191,38 @@ def delete_task(task_id: int) -> str:
 def complete_task(task_id: int) -> str:
     """Mark an existing task as completed."""
 
-    connection = get_connection()
-    cursor = connection.cursor()
+    def database_operation():
+        connection = get_connection()
+        cursor = connection.cursor()
 
-    cursor.execute(
-        "SELECT id FROM tasks WHERE id = ?",
-        (task_id,),
-    )
+        cursor.execute(
+            "SELECT id FROM tasks WHERE id = ?",
+            (task_id,),
+        )
 
-    task = cursor.fetchone()
+        task = cursor.fetchone()
 
-    if not task:
+        if not task:
+            connection.close()
+            return False
+
+        cursor.execute(
+            """
+            UPDATE tasks
+            SET status = ?
+            WHERE id = ?
+            """,
+            ("completed", task_id),
+        )
+
+        connection.commit()
         connection.close()
+
+        return True
+
+    completed = execute_with_retry(database_operation)
+
+    if not completed:
         return f"Task {task_id} not found."
-
-    cursor.execute(
-        """
-        UPDATE tasks
-        SET status = ?
-        WHERE id = ?
-        """,
-        ("completed", task_id),
-    )
-
-    connection.commit()
-    connection.close()
 
     return f"Task {task_id} marked as completed."

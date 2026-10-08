@@ -4,6 +4,11 @@ from app.agent import model
 
 
 def extract_data(user_request: str, intent: str) -> dict:
+    if intent == "calculate":
+        return {
+            "calculation": user_request.strip()
+        }
+
     prompt = f"""
 Extract the information provided by the user.
 
@@ -44,7 +49,6 @@ If information is not provided, use an empty string.
     content = str(response.content).strip()
 
     return json.loads(content)
-
 
 
 if __name__ == "__main__":

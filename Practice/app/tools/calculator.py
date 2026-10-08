@@ -19,6 +19,7 @@ def calculate(expression: str) -> str:
         if percentage_match:
             percentage = float(percentage_match.group(1))
             number = float(percentage_match.group(2))
+
             result = (percentage / 100) * number
 
             if result.is_integer():
@@ -26,8 +27,19 @@ def calculate(expression: str) -> str:
 
             return str(result)
 
-        result = eval(expression, {"__builtins__": {}}, {})
+        result = eval(
+            expression,
+            {"__builtins__": {}},
+            {},
+        )
+
         return str(result)
 
-    except Exception:
-        return "Unable to calculate the expression."
+    except ZeroDivisionError:
+        return "Calculation failed: division by zero."
+
+    except (SyntaxError, ValueError, TypeError):
+        return "Calculation failed: invalid mathematical expression."
+
+    except Exception as error:
+        return f"Calculation failed: unexpected error: {error}"

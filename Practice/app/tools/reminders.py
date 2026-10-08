@@ -1,6 +1,9 @@
 from langchain_core.tools import tool
 
-from app.database.database import get_connection
+from app.database.database import (
+    get_connection,
+    execute_with_retry,
+)
 
 
 @tool
@@ -10,21 +13,26 @@ def create_reminder(
 ) -> str:
     """Create a new reminder with a title and reminder time."""
 
-    connection = get_connection()
-    cursor = connection.cursor()
+    def database_operation():
+        connection = get_connection()
+        cursor = connection.cursor()
 
-    cursor.execute(
-        """
-        INSERT INTO reminders (title, reminder_time, status)
-        VALUES (?, ?, ?)
-        """,
-        (title, reminder_time, "pending"),
-    )
+        cursor.execute(
+            """
+            INSERT INTO reminders (title, reminder_time, status)
+            VALUES (?, ?, ?)
+            """,
+            (title, reminder_time, "pending"),
+        )
 
-    reminder_id = cursor.lastrowid
+        reminder_id = cursor.lastrowid
 
-    connection.commit()
-    connection.close()
+        connection.commit()
+        connection.close()
+
+        return reminder_id
+
+    reminder_id = execute_with_retry(database_operation)
 
     return f"Reminder created successfully. Reminder ID: {reminder_id}"
 
@@ -33,19 +41,24 @@ def create_reminder(
 def view_reminders() -> str:
     """View the user's reminders. Use this when the user asks to see, list, show, check, review, or know what reminders they have."""
 
-    connection = get_connection()
-    cursor = connection.cursor()
+    def database_operation():
+        connection = get_connection()
+        cursor = connection.cursor()
 
-    cursor.execute(
-        """
-        SELECT id, title, reminder_time, status
-        FROM reminders
-        ORDER BY id
-        """
-    )
+        cursor.execute(
+            """
+            SELECT id, title, reminder_time, status
+            FROM reminders
+            ORDER BY id
+            """
+        )
 
-    reminders = cursor.fetchall()
-    connection.close()
+        reminders = cursor.fetchall()
+        connection.close()
+
+        return reminders
+
+    reminders = execute_with_retry(database_operation)
 
     if not reminders:
         return "No reminders found."
@@ -55,8 +68,8 @@ def view_reminders() -> str:
         f"Time: {reminder[2]} | Status: {reminder[3]}"
         for reminder in reminders
     )
-    
-    
+
+
 @tool
 def update_reminder(
     reminder_id: int,
@@ -66,81 +79,100 @@ def update_reminder(
 ) -> str:
     """Update an existing reminder's title, reminder time, or status."""
 
-    connection = get_connection()
-    cursor = connection.cursor()
+    def database_operation():
+        connection = get_connection()
+        cursor = connection.cursor()
 
-    cursor.execute(
-        "SELECT id FROM reminders WHERE id = ?",
-        (reminder_id,),
-    )
+        cursor.execute(
+            "SELECT id FROM reminders WHERE id = ?",
+            (reminder_id,),
+        )
 
-    reminder = cursor.fetchone()
+        reminder = cursor.fetchone()
 
-    if not reminder:
+        if not reminder:
+            connection.close()
+            return "NOT_FOUND"
+
+        updates = []
+        values = []
+
+        if title:
+            updates.append("title = ?")
+            values.append(title)
+
+        if reminder_time:
+            updates.append("reminder_time = ?")
+            values.append(reminder_time)
+
+        if status:
+            updates.append("status = ?")
+            values.append(status)
+
+        if not updates:
+            connection.close()
+            return "NO_CHANGES"
+
+        values.append(reminder_id)
+
+        cursor.execute(
+            f"""
+            UPDATE reminders
+            SET {", ".join(updates)}
+            WHERE id = ?
+            """,
+            values,
+        )
+
+        connection.commit()
         connection.close()
+
+        return "UPDATED"
+
+    result = execute_with_retry(database_operation)
+
+    if result == "NOT_FOUND":
         return f"Reminder {reminder_id} not found."
 
-    updates = []
-    values = []
-
-    if title:
-        updates.append("title = ?")
-        values.append(title)
-
-    if reminder_time:
-        updates.append("reminder_time = ?")
-        values.append(reminder_time)
-
-    if status:
-        updates.append("status = ?")
-        values.append(status)
-
-    if not updates:
-        connection.close()
+    if result == "NO_CHANGES":
         return "No changes were provided."
 
-    values.append(reminder_id)
-
-    cursor.execute(
-        f"""
-        UPDATE reminders
-        SET {", ".join(updates)}
-        WHERE id = ?
-        """,
-        values,
-    )
-
-    connection.commit()
-    connection.close()
-
-    return f"Reminder {reminder_id} updated successfully."    
+    return f"Reminder {reminder_id} updated successfully."
 
 
 @tool
 def delete_reminder(reminder_id: int) -> str:
     """Delete an existing reminder by its ID."""
 
-    connection = get_connection()
-    cursor = connection.cursor()
+    def database_operation():
+        connection = get_connection()
+        cursor = connection.cursor()
 
-    cursor.execute(
-        "SELECT id FROM reminders WHERE id = ?",
-        (reminder_id,),
-    )
+        cursor.execute(
+            "SELECT id FROM reminders WHERE id = ?",
+            (reminder_id,),
+        )
 
-    reminder = cursor.fetchone()
+        reminder = cursor.fetchone()
 
-    if not reminder:
+        if not reminder:
+            connection.close()
+            return False
+
+        cursor.execute(
+            "DELETE FROM reminders WHERE id = ?",
+            (reminder_id,),
+        )
+
+        connection.commit()
         connection.close()
+
+        return True
+
+    deleted = execute_with_retry(database_operation)
+
+    if not deleted:
         return f"Reminder {reminder_id} not found."
-
-    cursor.execute(
-        "DELETE FROM reminders WHERE id = ?",
-        (reminder_id,),
-    )
-
-    connection.commit()
-    connection.close()
 
     return f"Reminder {reminder_id} deleted successfully."
 
@@ -149,31 +181,38 @@ def delete_reminder(reminder_id: int) -> str:
 def complete_reminder(reminder_id: int) -> str:
     """Mark an existing reminder as completed."""
 
-    connection = get_connection()
-    cursor = connection.cursor()
+    def database_operation():
+        connection = get_connection()
+        cursor = connection.cursor()
 
-    cursor.execute(
-        "SELECT id FROM reminders WHERE id = ?",
-        (reminder_id,),
-    )
+        cursor.execute(
+            "SELECT id FROM reminders WHERE id = ?",
+            (reminder_id,),
+        )
 
-    reminder = cursor.fetchone()
+        reminder = cursor.fetchone()
 
-    if not reminder:
+        if not reminder:
+            connection.close()
+            return False
+
+        cursor.execute(
+            """
+            UPDATE reminders
+            SET status = ?
+            WHERE id = ?
+            """,
+            ("completed", reminder_id),
+        )
+
+        connection.commit()
         connection.close()
+
+        return True
+
+    completed = execute_with_retry(database_operation)
+
+    if not completed:
         return f"Reminder {reminder_id} not found."
 
-    cursor.execute(
-        """
-        UPDATE reminders
-        SET status = ?
-        WHERE id = ?
-        """,
-        ("completed", reminder_id),
-    )
-
-    connection.commit()
-    connection.close()
-
     return f"Reminder {reminder_id} marked as completed."
-

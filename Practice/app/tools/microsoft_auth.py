@@ -1,9 +1,14 @@
+import os
+
 import msal
+from dotenv import load_dotenv
 
 
-CLIENT_ID = "CLIENT_ID"
+load_dotenv()
 
-AUTHORITY = "AUTHORITY"
+
+CLIENT_ID = os.getenv("CLIENT_ID")
+AUTHORITY = os.getenv("AUTHORITY")
 
 SCOPES = [
     "Mail.Send"
@@ -13,7 +18,7 @@ SCOPES = [
 def get_access_token():
     app = msal.PublicClientApplication(
         client_id=CLIENT_ID,
-        authority=AUTHORITY
+        authority=AUTHORITY,
     )
 
     accounts = app.get_accounts()
@@ -21,7 +26,7 @@ def get_access_token():
     if accounts:
         result = app.acquire_token_silent(
             SCOPES,
-            account=accounts[0]
+            account=accounts[0],
         )
 
         if result and "access_token" in result:
@@ -35,5 +40,6 @@ def get_access_token():
         return result["access_token"]
 
     raise Exception(
-        f"Authentication failed: {result.get('error_description')}"
+        f"Authentication failed: "
+        f"{result.get('error_description')}"
     )

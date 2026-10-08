@@ -15,4 +15,12 @@ class AgentState(TypedDict):
 
     pending_action: dict[str, Any]
 
+    plan: list[str]
+
+    todos: list[dict[str, str]]
+
+    execution_id: str
+
+    execution_status: str
+
     final_response: str
