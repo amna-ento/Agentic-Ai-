@@ -5,6 +5,16 @@ from app.agent import (
     delete_task_with_approval,
     send_email_with_approval,
 )
+from app.agentt.llm_errors import classify_llm_error
+from app.agentt.retry import LLMRetryableError
+
+
+def test_rate_limit_errors_are_retryable():
+    error = ValueError("Rate limit reached for model; 429 Too Many Requests")
+
+    classified = classify_llm_error(error)
+
+    assert isinstance(classified, LLMRetryableError)
 
 def test_agent_selects_calculator():
     result = agent.invoke(

@@ -1,14 +1,9 @@
-from typing import Any
-
 from langchain.agents import create_agent
-from langchain_groq import ChatGroq
+from langchain_ollama import ChatOllama
 from langchain_core.tools import tool
 from langgraph.types import interrupt
-
+import os
 from app.memory.checkpointer import create_checkpointer
-
-from app.agentt.llm_errors import classify_llm_error
-from app.agentt.retry import retry_operation
 
 from app.middleware.guardrails import GuardrailsMiddleware
 
@@ -36,39 +31,14 @@ from app.tools.tasks import (
 )
 
 
-class RetryableChatGroq(ChatGroq):
-    """ChatGroq model with retry handling for temporary LLM failures."""
-
-    def _generate(
-        self,
-        messages,
-        stop=None,
-        run_manager=None,
-        **kwargs: Any,
-    ):
-        def llm_operation():
-            try:
-                return super(RetryableChatGroq, self)._generate(
-                    messages,
-                    stop=stop,
-                    run_manager=run_manager,
-                    **kwargs,
-                )
-            except Exception as error:
-                classified_error = classify_llm_error(error)
-                if classified_error is not error:
-                    raise classified_error
-                raise
-
-        return retry_operation(
-            llm_operation,
-            max_retries=2,
-        )
-
-
-model = RetryableChatGroq(
-    model="openai/gpt-oss-20b",
+model = ChatOllama(
+    model="qwen3:8b",
     temperature=0,
+    reasoning=False,
+    base_url=os.getenv(
+        "OLLAMA_BASE_URL",
+        "http://localhost:11434",
+    ),
 )
 
 
@@ -130,7 +100,7 @@ Web search rules:
 
 Number formatting rules:
 - Always use plain numeric digits in your final answer, without thousands separators or locale-specific spacing.
-- Write values like 1000, not 1 000 or 1 000.
+- Write values like 1000, not 1 000 or 1 000.
 - Do not insert non-breaking spaces or grouped separators in numeric output.
 
 External service:
@@ -157,7 +127,7 @@ Reminder tools:
 - Use view_reminders when the user wants to see, list, check, or review reminders.
 - Use update_reminder when the user wants to modify a reminder.
 - Use delete_reminder when the user wants to delete a reminder.
-- Use complete_reminder when the user says a reminder is finished or should be marked completed.
+- Use complete_reminder when the user says a reminder is finished or should be completed.
 
 Email tools:
 - Use draft_email when the user wants to compose, draft, or generate an email.
@@ -237,7 +207,6 @@ tools = [
 ]
 
 guardrails = GuardrailsMiddleware()
-
 
 checkpointer = create_checkpointer()
 

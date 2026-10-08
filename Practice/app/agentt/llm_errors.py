@@ -13,6 +13,16 @@ def classify_llm_error(error: Exception) -> Exception:
         "server error",
         "internal server error",
         "service unavailable",
+        "rate limit",
+        "rate_limit",
+        "rate_limit_exceeded",
+        "too many requests",
+        "429",
+        "quota exceeded",
+        "tokens per day",
+        "tokens per minute",
+        "limit exceeded",
+        "overloaded",
     )
 
     if any(
@@ -20,7 +30,7 @@ def classify_llm_error(error: Exception) -> Exception:
         for text in retryable_messages
     ):
         return LLMRetryableError(
-            f"LLM temporarily unavailable: {error}"
+            f"LLM temporarily unavailable or rate limited: {error}"
         )
 
     return error

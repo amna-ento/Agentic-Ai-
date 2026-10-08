@@ -1,18 +1,11 @@
 import requests
-
 from langchain_core.tools import tool
-
 from app.tools.microsoft_auth import get_access_token
 
 
 @tool
-def draft_email(
-    recipient: str,
-    subject: str,
-    body: str,
-) -> dict:
-    """Create an email draft without sending it."""
-
+def draft_email(recipient: str, subject: str, body: str) -> dict:
+    """Create an email draft."""
     return {
         "recipient": recipient,
         "subject": subject,
@@ -51,8 +44,7 @@ def send_email(email: dict) -> bool:
 
     if response.status_code != 202:
         raise Exception(
-            f"Email sending failed: "
-            f"{response.status_code} - {response.text}"
+            f"Email sending failed: {response.status_code} - {response.text}"
         )
 
     return True
